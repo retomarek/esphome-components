@@ -26,15 +26,17 @@ public:
   /// Return the traits of this controller.
   climate::ClimateTraits traits() override {
     auto traits = climate::ClimateTraits();
-    traits.set_supports_current_temperature(true);
+    traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+    // The unit reports these three modes (see RES_GET_VENTILATION_LEVEL):
+    // level 0 = auto, level 1 = off/away, level 2..4 = fan only
     traits.set_supported_modes({
-      climate::CLIMATE_MODE_FAN_ONLY
+      climate::CLIMATE_MODE_OFF,
+      climate::CLIMATE_MODE_FAN_ONLY,
+      climate::CLIMATE_MODE_AUTO
     });
-    traits.set_supports_two_point_target_temperature(false);
     traits.set_supported_presets({
         climate::CLIMATE_PRESET_HOME,
     });
-    traits.set_supports_action(false);
     traits.set_visual_min_temperature(12);
     traits.set_visual_max_temperature(29);
     traits.set_visual_temperature_step(1);
@@ -50,6 +52,33 @@ public:
 
   /// Override control to change settings of the climate device.
   void control(const climate::ClimateCall &call) override {
+    if (call.get_mode().has_value()) {
+      int level;
+
+      switch (*call.get_mode()) {
+        case climate::CLIMATE_MODE_OFF:
+          level = 0x01;
+          break;
+        case climate::CLIMATE_MODE_AUTO:
+          level = 0x00;
+          break;
+        case climate::CLIMATE_MODE_FAN_ONLY:
+          // Keep the current ventilation level if the unit is already running,
+          // otherwise start with the lowest one.
+          level = is_fan_running_() ? -1 : 0x02;
+          break;
+        default:
+          ESP_LOGI(TAG, "Ignoring unsupported mode request: %i", (int) *call.get_mode());
+          level = -1;
+          break;
+      }
+
+      if (level >= 0) {
+        mode = *call.get_mode();
+        fan_mode = fan_mode_for_level_(level);
+        set_level_(level);
+      }
+    }
     if (call.get_fan_mode().has_value()) {
       int level;
 
@@ -79,6 +108,7 @@ public:
       }
 
       if (level >= 0) {
+        mode = mode_for_level_(level);
         set_level_(level);
       }
 
@@ -220,10 +250,44 @@ public:
     write_command_(CMD_SET_VENTILATION_LEVEL, command_levels, sizeof(command_levels));
 	}
 
-  void set_name(const char* value) {name = value;}
   void set_uart_component(uart::UARTComponent *parent) {set_uart_parent(parent);}
 
 protected:
+
+  /// Climate mode the unit reports for a given ventilation level.
+  static climate::ClimateMode mode_for_level_(uint8_t level) {
+    switch (level) {
+      case 0x00:
+        return climate::CLIMATE_MODE_AUTO;
+      case 0x01:
+        return climate::CLIMATE_MODE_OFF;
+      default:
+        return climate::CLIMATE_MODE_FAN_ONLY;
+    }
+  }
+
+  /// Fan mode the unit reports for a given ventilation level.
+  static climate::ClimateFanMode fan_mode_for_level_(uint8_t level) {
+    switch (level) {
+      case 0x00:
+        return climate::CLIMATE_FAN_AUTO;
+      case 0x01:
+        return climate::CLIMATE_FAN_OFF;
+      case 0x03:
+        return climate::CLIMATE_FAN_MEDIUM;
+      case 0x04:
+        return climate::CLIMATE_FAN_HIGH;
+      default:
+        return climate::CLIMATE_FAN_LOW;
+    }
+  }
+
+  /// True if the unit is currently running on one of the manual levels.
+  bool is_fan_running_() const {
+    return fan_mode.has_value() && (fan_mode.value() == climate::CLIMATE_FAN_LOW ||
+                                    fan_mode.value() == climate::CLIMATE_FAN_MEDIUM ||
+                                    fan_mode.value() == climate::CLIMATE_FAN_HIGH);
+  }
 
   void set_level_(int level) {
     if (level < 0 || level > 5) {
@@ -448,27 +512,11 @@ protected:
         }
 
         // Fan Speed
-        switch(msg[8]) {
-          case 0x00:
-            fan_mode = climate::CLIMATE_FAN_AUTO;
-            mode = climate::CLIMATE_MODE_AUTO;
-            break;
-          case 0x01:
-            fan_mode = climate::CLIMATE_FAN_OFF;
-            mode = climate::CLIMATE_MODE_OFF;
-            break;
-          case 0x02:
-            fan_mode = climate::CLIMATE_FAN_LOW;
-            mode = climate::CLIMATE_MODE_FAN_ONLY;
-            break;
-          case 0x03:
-            fan_mode = climate::CLIMATE_FAN_MEDIUM;
-            mode = climate::CLIMATE_MODE_FAN_ONLY;
-          break;
-          case 0x04:
-            fan_mode = climate::CLIMATE_FAN_HIGH;
-            mode = climate::CLIMATE_MODE_FAN_ONLY;
-            break;
+        if (msg[8] <= 0x04) {
+          fan_mode = fan_mode_for_level_(msg[8]);
+          mode = mode_for_level_(msg[8]);
+        } else {
+          ESP_LOGW(TAG, "Unknown ventilation level reported: %02x", msg[8]);
         }
 
         publish_state();
@@ -867,7 +915,6 @@ protected:
   uint8_t bootloader_version_[13]{0};
   uint8_t firmware_version_[13]{0};
   uint8_t connector_board_version_[14]{0};
-  const char* name{0};
 
 public:
   text_sensor::TextSensor *type{nullptr};

@@ -82,15 +82,26 @@ comfoair:
 | Option | Type | Description |
 | --- | --- | --- |
 | `id` | ID | Manually specify the ID of the component, needed for lambda calls. |
-| `name` | string | **Required.** Name of the generated `climate` entity. |
+| `name` | string | Name of the generated `climate` entity. |
 | `uart_id` | ID | ID of the UART bus the unit is connected to. |
+
+Plus all options of the [base climate component](https://esphome.io/components/climate/index.html)
+(`icon`, `entity_category`, `visual`, …).
+
+> Requires a recent ESPHome version: the component uses the current climate traits
+> feature-flag API (`add_feature_flags`) and the current entity registration
+> (`climate.register_climate`).
 
 ### Climate entity
 
 The component registers a climate device with:
 
-* Mode: `FAN_ONLY` (reported as `OFF` / `AUTO` depending on the unit state)
+* Modes: `off` (level 1 / away), `fan_only` (levels 2…4), `auto` (level 0)
 * Fan modes: `off`, `low`, `medium`, `high`, `auto` → ventilation levels 1…4 and auto
+
+Mode and fan mode are two views of the same ventilation level, so changing one also updates
+the other: selecting `auto` sets fan mode `auto`, `off` sets fan mode `off`, and `fan_only`
+keeps the current level (or falls back to `low` if the unit is off or in auto).
 * Target temperature (comfort temperature): 12 … 29 °C, 1 °C steps
 * Current temperature from the unit
 

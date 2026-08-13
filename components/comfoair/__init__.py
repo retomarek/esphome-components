@@ -2,8 +2,8 @@
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import binary_sensor, sensor, text_sensor, uart
-from esphome.const import (CONF_ID, CONF_UART_ID, DEVICE_CLASS_CURRENT,
+from esphome.components import binary_sensor, climate, sensor, text_sensor, uart
+from esphome.const import (DEVICE_CLASS_CURRENT,
                            DEVICE_CLASS_EMPTY, DEVICE_CLASS_SPEED,
                            DEVICE_CLASS_TEMPERATURE,
                            STATE_CLASS_MEASUREMENT, UNIT_AMPERE, UNIT_CELSIUS,
@@ -11,11 +11,12 @@ from esphome.const import (CONF_ID, CONF_UART_ID, DEVICE_CLASS_CURRENT,
                            UNIT_PERCENT, UNIT_REVOLUTIONS_PER_MINUTE)
 
 comfoair_ns = cg.esphome_ns.namespace("comfoair")
-ComfoAirComponent = comfoair_ns.class_("ComfoAirComponent", cg.Component)
+ComfoAirComponent = comfoair_ns.class_(
+    "ComfoAirComponent", climate.Climate, cg.PollingComponent, uart.UARTDevice
+)
 
 DEPENDENCIES = ["uart"]
 AUTO_LOAD = ["sensor", "climate", "binary_sensor", "text_sensor"]
-REQUIRED_KEY_NAME = "name"
 CONF_HUB_ID = "comfoair"
 
 UNIT_WEEK = "weeks"
@@ -504,38 +505,29 @@ comfoair_sensors_schemas = cv.Schema(
 )
 
 CONFIG_SCHEMA = cv.All(
-    cv.Schema(
-        {
-            cv.GenerateID(CONF_ID): cv.declare_id(ComfoAirComponent),
-            cv.Required(REQUIRED_KEY_NAME): cv.string,
-        }
-    )
+    climate.climate_schema(ComfoAirComponent)
     .extend(uart.UART_DEVICE_SCHEMA)
     .extend(comfoair_sensors_schemas)
     .extend(cv.COMPONENT_SCHEMA)
 )
 
 
-def to_code(config):
+async def to_code(config):
     """Generates code"""
-    var = cg.new_Pvariable(config[CONF_ID])
-    yield cg.register_component(var, config)
-    yield uart.register_uart_device(var, config)
-    cg.add(var.set_name(config[REQUIRED_KEY_NAME]))
-    paren = yield cg.get_variable(config[CONF_UART_ID])
-    cg.add(var.set_uart_component(paren))
+    var = await climate.new_climate(config)
+    await cg.register_component(var, config)
+    await uart.register_uart_device(var, config)
     for k, values in helper_comfoair.items():
         for v in values:
             if not v in config:
                 continue
             sens = None
             if k == "sensor":
-                sens = yield sensor.new_sensor(config[v])
+                sens = await sensor.new_sensor(config[v])
             elif k == "binary_sensor":
-                sens = yield binary_sensor.new_binary_sensor(config[v])
+                sens = await binary_sensor.new_binary_sensor(config[v])
             elif k == "text_sensor":
-                sens = yield text_sensor.new_text_sensor(config[v])
+                sens = await text_sensor.new_text_sensor(config[v])
             if sens is not None:
                 func = getattr(var, "set_" + v)
                 cg.add(func(sens))
-    cg.add(cg.App.register_climate(var))
