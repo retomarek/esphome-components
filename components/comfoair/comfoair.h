@@ -141,6 +141,14 @@ public:
     check_uart_settings(9600);
   }
 
+  void setup() override {
+    // mode / fan_mode default to off until the unit has reported its ventilation
+    // level. Ask for it right away instead of waiting for it to come up in the
+    // polling cycle (~5 s after boot), so a restart does not show "off" for a
+    // couple of seconds.
+    get_ventilation_level_();
+  }
+
   void update() override {
     switch(update_counter_) {
       case -4:

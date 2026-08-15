@@ -92,6 +92,14 @@ Plus all options of the [base climate component](https://esphome.io/components/c
 > feature-flag API (`add_feature_flags`) and the current entity registration
 > (`climate.register_climate`).
 
+> **Breaking change (Umstellung auf die aktuelle Climate-API):** früher wurde das `name:`
+> aus der Config an einer eigenen `set_name()`-Methode vorbei gesetzt, die Entity selbst blieb
+> namenlos und erbte damit den Gerätenamen (`climate.comfoair`). Jetzt wird `name:` als
+> normaler Entity-Name verwendet, Home Assistant bildet die entity_id also aus Gerätename +
+> Entity-Name (z. B. `climate.central_comfoair_350`). Die alte Entity bleibt als
+> "nicht verfügbar" in der HA-Entity-Registry zurück: dort löschen und die neue Entity bei
+> Bedarf wieder auf die alte entity_id umbenennen (Historie wandert mit).
+
 ### Climate entity
 
 The component registers a climate device with:
@@ -104,6 +112,11 @@ the other: selecting `auto` sets fan mode `auto`, `off` sets fan mode `off`, and
 keeps the current level (or falls back to `low` if the unit is off or in auto).
 * Target temperature (comfort temperature): 12 … 29 °C, 1 °C steps
 * Current temperature from the unit
+
+Nach einem Neustart meldet die Entity kurz `off`, bis die erste Antwort der Lüftung
+eingetroffen ist (der Level wird direkt in `setup()` angefragt, also typischerweise
+< 1 s). Bleibt der Modus dauerhaft auf `off`, obwohl die Anlage läuft, steht sie auf
+Stufe 1 (Abwesenheit) – diese Stufe wird bewusst auf `off` gemappt.
 
 ### Optional sensors
 
